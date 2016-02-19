@@ -42,6 +42,7 @@
 #include <SmartThings.h>    //Library to provide API to the SmartThings Shield
 #include <dht.h>            //DHT Temperature and Humidity Library 
 #include <avr/pgmspace.h>
+#include <OneWire.h> //Maxum OneWire Library for DS18S20 temperature sensor
 
 //******************************************************************************************
 // ST_Anything Library 
@@ -57,11 +58,8 @@
 #include <PS_Illuminance.h>  //Implements a Polling Sensor (PS) to measure light levels via a photo resistor
 
 #include <PS_TemperatureHumidity.h>  //Implements a Polling Sensor (PS) to measure Temperature and Humidity via DHT library
-#include <PS_Water.h>        //Implements a Polling Sensor (PS) to measure presence of water (i.e. leak detector)
-#include <IS_Motion.h>       //Implements an Interrupt Sensor (IS) to detect motion via a PIR sensor
-#include <IS_Contact.h>      //Implements an Interrupt Sensor (IS) to monitor the status of a digital input pin
+#include <PS_TemperatureOneWire.h>
 #include <EX_Switch.h>       //Implements an Executor (EX) via a digital output to a relay
-#include <EX_Alarm.h>        //Implements Executor (EX)as an Alarm Siren capability via a digital output to a relay
 
 //******************************************************************************************
 //Define which Arduino Pins will be used for each device
@@ -73,20 +71,16 @@
 //"RESERVED" pins for SmartThings ThingShield - best to avoid
 #define PIN_O_RESERVED               0  //reserved by ThingShield for Serial communications OR USB Serial Monitor
 #define PIN_1_RESERVED               1  //reserved by ThingShield for Serial communications OR USB Serial Monitor
-#define PIN_2_RESERVED               2  //reserved by ThingShield for Serial communications
-#define PIN_3_RESERVED               3  //reserved by ThingShield for Serial communications
+#define PIN_2_RESERVED               14  //reserved by ThingShield for Serial communications
+#define PIN_3_RESERVED               15  //reserved by ThingShield for Serial communications
 #define PIN_6_RESERVED               6  //reserved by ThingShield (possible future use?)
 
-#define PIN_WATER                A4
-#define PIN_ILLUMINANCE          A5
-#define PIN_MOTION               4
-#define PIN_TEMPERATUREHUMIDITY  5
-#define PIN_SWITCH               8
-#define PIN_ALARM                9
-#define PIN_CONTACT              11
-
-
-
+#define PIN_TEMP_AQUARIUM            4
+#define PIN_TEMPHUMID_AIR            5
+#define PIN_SWITCH                   13
+OneWire ds(PIN_TEMP_AQUARIUM);
+int aquaHigh;
+int aquaLow;
 
 //******************************************************************************************
 //Arduino Setup() routine
@@ -106,17 +100,24 @@ void setup()
   //           "temperature" and one for "humidity")
   //******************************************************************************************
   //Polling Sensors
-  static st::PS_Illuminance sensor1(F("illuminance"), 120, 0, PIN_ILLUMINANCE);
-  static st::PS_TemperatureHumidity sensor2(F("temphumid"), 120, 10, PIN_TEMPERATUREHUMIDITY, st::PS_TemperatureHumidity::DHT22);
-  static st::PS_Water sensor3(F("water"), 60, 20, PIN_WATER);
-  
-  //Interrupt Sensors 
-  static st::IS_Motion sensor4(F("motion"), PIN_MOTION, HIGH, false);
-  static st::IS_Contact sensor5(F("contact"), PIN_CONTACT, LOW, true);
+  static st::PS_TemperatureOneWire sensor1(F("o_Aquarium"), 30, 3, PIN_TEMP_AQUARIUM, st::PS_TemperatureOneWire::DS18B20, "t_Aquarium");
+  static st::PS_TemperatureHumidity sensor2(F("th_Air"), 30, 5, PIN_TEMPHUMID_AIR, st::PS_TemperatureHumidity::DHT22, "t_Air", "h_Air");
+
+  /*
+  int t_Aquarium;
+  getTemp(t_Aquarium);
+  if( !aquaHigh || aquaHigh < t_Aquarium ) { aquaHigh = t_Aquarium; }
+  if( !aquaLow || aquaLow > t_Aquarium ) { aquaLow = t_Aquarium; }
+  String sc="t_Aquarium " + (String)t_Aquarium;
+  st::Everything::sendSmartString(sc);
+  String sc1="aquaHigh " + (String)aquaHigh;
+  //st::Everything::sendSmartString(sc1);
+  String sc2="aquaLow " + (String)aquaLow;
+  //st::Everything::sendSmartString(sc2);
+  */
   
   //Executors
   static st::EX_Switch executor1(F("switch"), PIN_SWITCH, LOW, false);
-  static st::EX_Alarm executor2(F("alarm"), PIN_ALARM, LOW, true);
   
   //*****************************************************************************
   //  Configure debug print output from each main class 
@@ -138,16 +139,13 @@ void setup()
   //Add each sensor to the "Everything" Class
   //*****************************************************************************
   st::Everything::addSensor(&sensor1);
+  
   st::Everything::addSensor(&sensor2);
-  st::Everything::addSensor(&sensor3);
-  st::Everything::addSensor(&sensor4); 
-  st::Everything::addSensor(&sensor5); 
   
   //*****************************************************************************
   //Add each executor to the "Everything" Class
   //*****************************************************************************
   st::Everything::addExecutor(&executor1);
-  st::Everything::addExecutor(&executor2);
   
   //*****************************************************************************
   //Initialize each of the devices which were added to the Everything Class
@@ -163,5 +161,94 @@ void loop()
   //*****************************************************************************
   //Execute the Everything run method which takes care of "Everything"
   //*****************************************************************************
+  /*
+  int t_Aquarium;
+  getTemp(t_Aquarium);
+  if( !aquaHigh || aquaHigh < t_Aquarium ) { aquaHigh = t_Aquarium; }
+  if( !aquaLow || aquaLow > t_Aquarium ) { aquaLow = t_Aquarium; }
+  String sc="t_Aquarium " + (String)t_Aquarium;
+  st::Everything::sendSmartString(sc);
+  String sc1="aquaHigh " + (String)aquaHigh;
+  //st::Everything::sendSmartString(sc1);
+  String sc2="aquaLow " + (String)aquaLow;
+  //st::Everything::sendSmartString(sc2);
+ */
   st::Everything::run();
+
+  
 }
+
+void getTemp(int &fahrenheit)
+{
+  byte i;
+  byte present = 0;
+  byte type_s;
+  byte data[12];
+  byte addr[8];
+  float celsius;
+
+  if( !ds.search(addr))
+  {
+    ds.reset_search();
+    delay(250);
+    return;
+  }
+
+  if( OneWire::crc8(addr, 7) != addr[7])
+  {
+    if( st::PollingSensor::debug ) {
+      Serial.print("OneWire: CRC is not valid");
+    }
+    return;
+  }
+
+  switch (addr[0])
+  {
+    case 0x10:
+      type_s = 1;
+      break;
+    case 0x28:
+      type_s = 0;
+      break;
+    case 0x22:
+      type_s = 0;
+      break;
+    default:
+      if( st::PollingSensor::debug ) {
+        Serial.print("OneWire: Device is not a DS18*20 family device");
+      }
+      return;
+  }
+
+  ds.reset();
+  ds.select(addr);
+  ds.write(0x44);
+
+  delay(1000);
+  present = ds.reset();
+  ds.select(addr);
+  ds.write(0xBE);
+  for( i=0; i<9; i++)
+  {
+    data[i] = ds.read();
+  }
+
+  int16_t raw = (data[1] << 8) | data[0];
+  if( type_s )
+  {
+    raw = raw << 3;
+    if( data[7] == 0x10)
+    {
+      raw = ( raw & 0xFFF0 ) + 12 - data[6];
+    }
+  } else {
+    byte cfg = ( data[4] & 0x60 );
+    if (cfg == 0x00) raw = raw & ~7;
+    else if (cfg == 0x20) raw = raw & ~3;
+    else if (cfg == 0x40) raw = raw & ~1;
+  }
+  celsius = (float)raw / 16.0;
+  fahrenheit = celsius * 1.8 + 32.0;
+}
+
+
