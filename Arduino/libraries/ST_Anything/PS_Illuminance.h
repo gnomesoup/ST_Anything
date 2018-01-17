@@ -11,7 +11,7 @@
 //			  defaults for this sensor are based on the device used during testing.  
 //
 //			  Create an instance of this class in your sketch's global variable section
-//			  For Example:  st::PS_Illuminance sensor1("illuminance", 120000, 0, PIN_ILLUMINANCE, 0, 1024, 0, 1024);
+//			  For Example:  st::PS_Illuminance sensor1("illuminance1", 120, 0, PIN_ILLUMINANCE, 0, 1023, 0, 1000);
 //
 //			  st::PS_Illuminance() constructor requires the following arguments
 //				- String &name - REQUIRED - the name of the object - must match the Groovy ST_Anything DeviceType tile name
@@ -34,6 +34,7 @@
 //    Date        Who            What
 //    ----        ---            ----
 //    2015-01-03  Dan & Daniel   Original Creation
+//    2018-08-30  Dan Ogorchock  Modified comment section above to comply with new Parent/Child Device Handler requirements
 //
 //
 //******************************************************************************************
@@ -54,7 +55,7 @@ namespace st
 			
 		public:
 			//constructor - called in your sketch's global variable declaration section
-			PS_Illuminance(const __FlashStringHelper *name, unsigned int interval, int offset, byte analogInputPin, int s_l=0, int s_h=1024, int m_l=1000, int m_h=0);
+			PS_Illuminance(const __FlashStringHelper *name, unsigned int interval, int offset, byte analogInputPin, int s_l=0, int s_h=1023, int m_l=1000, int m_h=0);
 			
 			//destructor
 			virtual ~PS_Illuminance();

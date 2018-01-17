@@ -2,11 +2,11 @@
 //  File: IS_Smoke.cpp
 //  Authors: Dan G Ogorchock & Daniel J Ogorchock (Father and Son)
 //
-//  Summary:  IS_Smoke is a class which implements the SmartThings "Smoke Sensor" device capability.
+//  Summary:  IS_Smoke is a class which implements the SmartThings "Smoke Detector" device capability.
 //			  It inherits from the st::InterruptSensor class.
 //
 //			  Create an instance of this class in your sketch's global variable section
-//			  For Example:  st::IS_Smoke sensor6("contact", PIN_SMOKE, HIGH);
+//			  For Example:  st::IS_Smoke sensor6("smoke1", PIN_SMOKE, HIGH, false, 500);
 //
 //			  st::IS_Smoke() constructor requires the following arguments
 //				- String &name - REQUIRED - the name of the object - must match the Groovy ST_Anything DeviceType tile name
@@ -20,7 +20,8 @@
 //    Date        Who            What
 //    ----        ---            ----
 //    2015-01-03  Dan & Daniel   Original Creation
-//	  2015-03-17  Dan			 Added optional "numReqCounts" constructor argument/capability
+//	  2015-03-17  Dan Ogorchock  Added optional "numReqCounts" constructor argument/capability
+//    2018-08-30  Dan Ogorchock  Modified comment section above to comply with new Parent/Child Device Handler requirements
 //
 //
 //******************************************************************************************

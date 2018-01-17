@@ -20,59 +20,24 @@
 //	  2015-01-10  Dan Ogorchock	 Minor improvements to support Door Control Capability
 //	  2015-03-14  Dan Ogorchock	 Added public setLED() function to control ThingShield LED
 //    2015-03-28  Dan Ogorchock  Added throttling capability to sendStrings to improve success rate of ST Cloud getting the data ("SENDSTRINGS_INTERVAL" is in CONSTANTS.H)
-//
+//    2017-02-07  Dan Ogorchock  Added support for new SmartThings v2.0 library (ThingShield, W5100, ESP8266)
+//    2017-02-19  Dan Ogorchock  Fixed bug in throttling capability
+//    2017-04-26  Dan Ogorchock  Allow each communication method to specify unique ST transmission throttling delay
 //
 //******************************************************************************************
 
-#include <Arduino.h>
-#include <avr/pgmspace.h>
+//#include <Arduino.h>
+//#include <avr/pgmspace.h>
 #include "Everything.h"
 
-int freeRam();	//freeRam() function prototype - useful in determining how much SRAM is available on Arduino
-
+long freeRam();	//freeRam() function prototype - useful in determining how much SRAM is available on Arduino
+#if defined(ARDUINO_ARCH_SAMD)
+extern "C" char* sbrk(int incr);
+#endif
 namespace st
 {
 	
 //private
-	void Everything::updateNetworkState()		//get the current zigbee network status of the ST Shield
-	{
-		#ifndef DISABLE_SMARTTHINGS
-			SmartThingsNetworkState_t tempState = SmartThing.shieldGetLastNetworkState();
-			if (tempState != stNetworkState)
-			{
-				switch (tempState)
-				{
-				  case STATE_NO_NETWORK:
-					if (debug) Serial.println(F("Everything: NO_NETWORK"));
-					SmartThing.shieldSetLED(2, 0, 0); // red
-					break;
-				  case STATE_JOINING:
-					if (debug) Serial.println(F("Everything: JOINING"));
-					SmartThing.shieldSetLED(2, 0, 0); // red
-					break;
-				  case STATE_JOINED:
-					if (debug) Serial.println(F("Everything: JOINED"));
-					SmartThing.shieldSetLED(0, 0, 0); // off
-					break;
-				  case STATE_JOINED_NOPARENT:
-					if (debug) Serial.println(F("Everything: JOINED_NOPARENT"));
-					SmartThing.shieldSetLED(2, 0, 2); // purple
-					break;
-				  case STATE_LEAVING:
-					if (debug) Serial.println(F("Everything: LEAVING"));
-					SmartThing.shieldSetLED(2, 0, 0); // red
-					break;
-				  default:
-				  case STATE_UNKNOWN:
-					if (debug) Serial.println(F("Everything: UNKNOWN"));
-					SmartThing.shieldSetLED(0, 2, 0); // green
-					break;
-				}
-				stNetworkState = tempState; 
-			}
-		#endif
-	}
-
 	void Everything::updateSensors()
 	{
 		for(unsigned int index=0; index<m_nSensorCount; ++index)
@@ -110,13 +75,17 @@ namespace st
 			{
 				Serial.print(F("Everything: Sending: "));
 				Serial.println(Return_String.substring(0, index));
+				//Serial.print(F("Everything: getTransmitInterval() = "));
+				//Serial.println(SmartThing->getTransmitInterval());
 			}
 			#ifndef DISABLE_SMARTTHINGS
-			if (millis() - sendstringsLastMillis < Constants::SENDSTRINGS_INTERVAL)
+//			if (millis() - sendstringsLastMillis < Constants::SENDSTRINGS_INTERVAL)
+			if (millis() - sendstringsLastMillis < SmartThing->getTransmitInterval())
 				{
-					delay(1000 - (millis() - sendstringsLastMillis)); //Added due to slow ST Hub/Cloud Processing.  Events were being missed.  DGO 2015-03-28
-				}
-				SmartThing.send(Return_String.substring(0, index));
+//					delay(Constants::SENDSTRINGS_INTERVAL - (millis() - sendstringsLastMillis)); //Added due to slow ST Hub/Cloud Processing.  Events were being missed.  DGO 2015-03-28
+					delay(SmartThing->getTransmitInterval() - (millis() - sendstringsLastMillis)); //modified to allow different values for each method of communicating to ST cloud.  DGO 2017-04-26
+			}
+				SmartThing->send(Return_String.substring(0, index));
 				sendstringsLastMillis = millis();
 			#endif
 			#if defined(ENABLE_SERIAL) && defined(DISABLE_SMARTTHINGS)
@@ -162,19 +131,7 @@ namespace st
 		}
 		
 		#ifndef DISABLE_SMARTTHINGS
-			if(Constants::WAIT_FOR_JOIN_AT_START) //WAIT_FOR_JOIN_AT_START is set in Constants.h
-			{
-				while(stNetworkState!=STATE_JOINED)
-				{
-					updateNetworkState();
-					SmartThing.run();
-				}
-			}
-			else
-			{
-				updateNetworkState();
-				SmartThing.run();
-			}
+			SmartThing->init();
 		#endif
 		
 		
@@ -222,8 +179,7 @@ namespace st
 		updateSensors();			//call each st::Sensor object to refresh data
 
 		#ifndef DISABLE_SMARTTHINGS
-			SmartThing.run();		//call the ST Shield Library to receive any data from the ST Hub
-			updateNetworkState();	//call the ST Shield Library to update the current zigbee network status between the Shield and Hub
+			SmartThing->run();		//call the ST Shield Library to receive any data from the ST Hub
 		#endif
 		
 		#if defined(ENABLE_SERIAL)
@@ -240,7 +196,7 @@ namespace st
 		}
 		#endif
 		
-		if(debug && millis()%60000==0 && millis()!=lastmillis)
+		if((debug) && (millis()%60000==0) && (millis()!=lastmillis))
 		{
 			lastmillis = millis();
 			Serial.print(F("Everything: Free Ram = "));  
@@ -364,7 +320,11 @@ namespace st
 			Serial.println(message);
 		}
 		
-		if (message.length() > 1)		//ignore empty string messages from the ST Hub
+		if (message == "refresh")
+		{
+			Everything::refreshDevices();
+		}
+		else if (message.length() > 1)		//ignore empty string messages from the ST Hub
 		{
 			Device *p = Everything::getDeviceByName(message.substring(0, message.indexOf(' ')));
 			if (p != 0)
@@ -372,9 +332,16 @@ namespace st
 				p->beSmart(message);	//pass the incoming SmartThings Shield message to the correct Device's beSmart() routine
 			}
 		}
+		
+		if(Everything::callOnMsgRcvd!=0)
+		{
+			Everything::callOnMsgRcvd(message);
+		}
+
 	}
 	
 	//initialize static members
+	st::SmartThings* Everything::SmartThing=0; //initialize pointer to null
 	String Everything::Return_String;
 	Sensor* Everything::m_Sensors[Constants::MAX_SENSOR_COUNT];
 	Executor* Everything::m_Executors[Constants::MAX_EXECUTOR_COUNT];
@@ -382,30 +349,41 @@ namespace st
 	byte Everything::m_nExecutorCount=0;
 	unsigned long Everything::lastmillis=0;
 	unsigned long Everything::refLastMillis=0;
-	unsigned long Everything::sendstringsLastMillis = 0;
+	unsigned long Everything::sendstringsLastMillis=0;
 	bool Everything::debug=false;
-	byte Everything::bTimersPending = 0;	//initialize variable
-	void (*Everything::callOnMsgSend)(const String &msg) = 0; //initialize this callback function to null
+	byte Everything::bTimersPending=0;	//initialize variable
+	void (*Everything::callOnMsgSend)(const String &msg)=0; //initialize this callback function to null
+	void (*Everything::callOnMsgRcvd)(const String &msg)=0; //initialize this callback function to null
 	
 	//SmartThings static members
-	#ifndef DISABLE_SMARTTHINGS
-		// Please refer to Constants.h for settings that affect whether a board uses SoftwareSerial or Hardware Serial calls
-		#if defined(ST_SOFTWARE_SERIAL)  //use Software Serial
-			SmartThings Everything::SmartThing(Constants::pinRX, Constants::pinTX, receiveSmartString);
-		#elif defined(ST_HARDWARE_SERIAL) //use Hardware Serial
-			SmartThings Everything::SmartThing(Constants::SERIAL_TYPE, receiveSmartString);
-		#endif
+	//#ifndef DISABLE_SMARTTHINGS
+	//	// Please refer to Constants.h for settings that affect whether a board uses SoftwareSerial or Hardware Serial calls
+	//	#if defined(ST_SOFTWARE_SERIAL)  //use Software Serial
+	//		SmartThingsThingShield Everything::SmartThing(Constants::pinRX, Constants::pinTX, receiveSmartString);
+	//	#elif defined(ST_HARDWARE_SERIAL) //use Hardware Serial
+	//		SmartThingsThingShield Everything::SmartThing(Constants::SERIAL_TYPE, receiveSmartString);
+	//	#endif
 
-		SmartThingsNetworkState_t Everything::stNetworkState=(SmartThingsNetworkState_t)99; //bogus value for first pass through Everything::updateNetworkState()
-	#endif
+	//	SmartThingsNetworkState_t Everything::stNetworkState=(SmartThingsNetworkState_t)99; //bogus value for first pass through Everything::updateNetworkState()
+	//#endif
 }
 
 //freeRam() function - useful in determining how much SRAM is available on Arduino
-int freeRam()
+long freeRam()
 {
-	extern int __heap_start, *__brkval; 
-	int v; 
-	return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval); 
+#if defined(ARDUINO_ARCH_AVR) 
+	extern int __heap_start, *__brkval;
+	int v;
+	return (int)&v - (__brkval == 0 ? (int)&__heap_start : (int)__brkval);
+#elif defined(ARDUINO_ARCH_ESP8266)
+	return ESP.getFreeHeap();
+#elif defined(ARDUINO_ARCH_SAMD)
+	char top;
+	return &top - reinterpret_cast<char*>(sbrk(0));
+#else
+	return -1;
+#endif // !
+
+
 }
-	
 	

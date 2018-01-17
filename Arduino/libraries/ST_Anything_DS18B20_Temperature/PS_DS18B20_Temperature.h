@@ -7,7 +7,7 @@
 //			  temperature from a Dallas Semiconductor One Wire DS18B20 series sensor. 
 //
 //			  Create an instance of this class in your sketch's global variable section
-//			  For Example:  st::PS_DS18B20_Temperature sensor1("temperature", 120, 0, PIN_TEMPERATURE, false);
+//			  For Example:  st::PS_DS18B20_Temperature sensor1("temperature1", 120, 0, PIN_TEMPERATURE, false);
 //
 //			  st::PS_DS18B20_Temperature() constructor requires the following arguments
 //				- String &name - REQUIRED - the name of the object - must match the Groovy ST_Anything DeviceType tile name
@@ -16,6 +16,7 @@
 //				- byte pin - REQUIRED - the Arduino Pin to be used for the One-Wire DS18B20 sensor conenction
 //				- bool In_C - OPTIONAL - true = Report Celsius, false = Report Farenheit (Farentheit is the default)
 //				- byte resolution - OPTIONAL - DS18B20 sensor resolution in bits.  9, 10, 11, or 12.  Defaults to 10 for decent accuracy and performance
+//				- byte num_sensors - OPTIONAL - number of OneWire DS18B20 sensors attached to OneWire bus - Defaults to 1
 //
 //			  This class supports receiving configuration data from the SmartThings cloud via the ST App.  A user preference
 //			  can be configured in your phone's ST App, and then the "Configure" tile will send the data for all sensors to 
@@ -29,6 +30,9 @@
 //    ----        ---            ----
 //    2015-10-08  Matt Boykin    Original Creation
 //	  2016-02-19  Dan Ogorchock	 Cleaned Up for inclusing in the ST_Anything Project
+//    2016-02-27  Dan Ogorchock  Added support for multiple DS18B20 sensors
+//    2017-08-18  Dan Ogorchock  Modified to send floating point values to SmartThings
+//    2018-08-30  Dan Ogorchock  Modified comment section above to comply with new Parent/Child Device Handler requirements
 //
 //
 //******************************************************************************************
@@ -51,11 +55,12 @@ namespace st
 			DallasTemperature m_DS18B20;			//Dallas Temperature object
 			byte m_Resolution;						//DS18B20 Resolution in bits - 9, 10, 11, or 12
 			bool m_In_C;							//Return temp in C
+			byte m_numSensors;						//number of DS18B20 sensors to report values for
 
 		public:
 
 			//constructor - called in your sketch's global variable declaration section
-			PS_DS18B20_Temperature(const __FlashStringHelper *name, unsigned int interval, int offset, byte pin, bool In_C = false, byte resolution = 10);
+			PS_DS18B20_Temperature(const __FlashStringHelper *name, unsigned int interval, int offset, byte pin, bool In_C = false, byte resolution = 10, byte num_sensors = 1);
 
 			//destructor
 			virtual ~PS_DS18B20_Temperature();
@@ -70,7 +75,7 @@ namespace st
 			virtual void getData();
 
 			//gets
-			inline int getTemperatureSensorValue() const { return int(m_dblTemperatureSensorValue); }
+			inline float getTemperatureSensorValue() const { return float(m_dblTemperatureSensorValue); }
 
 			//sets
 
